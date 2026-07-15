@@ -1,8 +1,9 @@
-# Self-test manifest: run this plugin's own suite. The plugin resolves itself as a local plugin, so
-# `require("rabbitmq")` in the tests loads ./rabbitmq.lua — the same way a consumer would declare it
-# (they'd use `rabbitmq = "prova-rs/prova-rabbitmq@v1"` instead of a path).
+# Self-test manifest: run this plugin's own suite. Declaring the source as the plugin's own directory
+# (".") resolves the entry via prova-plugin.toml and registers the `rabbitmq` namespace — so the tests'
+# `require("rabbitmq")` loads the entry and the plugin's own `require("rabbitmq.helpers")` resolves.
+# A consumer would write `rabbitmq = "prova-rs/prova-rabbitmq@v1"` instead of a local path.
 [run]
 paths = ["tests"]
 
 [plugins]
-rabbitmq = "./rabbitmq.lua"
+rabbitmq = { path = "." }

@@ -13,6 +13,11 @@
 -- The container image is `rabbitmq:3-management` (ships `rabbitmqadmin`); `url` is the AMQP endpoint
 -- to hand the app under test. Requires docker at call time — gate tests with requires = { "docker" }.
 
+-- Vendored helpers, required by the plugin's own canonical namespace (self-contained; no external deps).
+local helpers = require("rabbitmq.helpers")
+local q = helpers.shell_quote
+local parse_payloads = helpers.parse_payloads
+
 -- Run `rabbitmqadmin` inside the container. Returns stdout; raises on a non-zero exit (so a readiness
 -- probe can retry until the management API answers). `args` are already-safe token strings.
 local function admin(container, args)
@@ -22,40 +27,6 @@ local function admin(container, args)
     error("rabbitmqadmin " .. table.concat(args, " ") .. " failed (" .. code .. "): " .. (err ~= "" and err or out))
   end
   return out
-end
-
--- Quote a value for a `key=value` rabbitmqadmin argument, so payloads/names with spaces survive the
--- one shell hop `container:exec` makes (`sh -c "<cmd>"`). Single-quote and escape embedded quotes.
-local function q(s)
-  return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
-end
-
--- Extract the `payload` column from a `rabbitmqadmin ... -f tsv` block (header row + data rows).
-local function parse_payloads(tsv)
-  local lines = {}
-  for line in tsv:gmatch("[^\n]+") do lines[#lines + 1] = line end
-  if #lines < 2 then return {} end          -- header only → no messages
-
-  local header = {}
-  local idx = 0
-  for col in (lines[1] .. "\t"):gmatch("([^\t]*)\t") do
-    idx = idx + 1
-    header[col] = idx
-  end
-  local payload_col = header["payload"]
-  if not payload_col then error("rabbitmqadmin get: no `payload` column in output") end
-
-  local payloads = {}
-  for i = 2, #lines do
-    local fields = {}
-    local n = 0
-    for field in (lines[i] .. "\t"):gmatch("([^\t]*)\t") do
-      n = n + 1
-      fields[n] = field
-    end
-    payloads[#payloads + 1] = fields[payload_col] or ""
-  end
-  return payloads
 end
 
 -- The docker-exec client: a table of methods closing over the container. No native driver, no socket.
