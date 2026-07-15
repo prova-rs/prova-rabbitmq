@@ -13,30 +13,22 @@
 -- The container image is `rabbitmq:3-management` (ships `rabbitmqadmin`); `url` is the AMQP endpoint
 -- to hand the app under test. Requires docker at call time — gate tests with requires = { "docker" }.
 
--- Vendored helpers, required by the plugin's own canonical namespace (self-contained; no external deps).
-local helpers = require("rabbitmq.helpers")
-local q = helpers.shell_quote
-local parse_payloads = helpers.parse_payloads
-
--- Run `rabbitmqadmin` inside the container. Returns stdout; raises on a non-zero exit (so a readiness
--- probe can retry until the management API answers). `args` are already-safe token strings.
+-- Run `rabbitmqadmin` inside the container (argv form → no shell, no quoting) and return stdout,
+-- raising on a non-zero exit (so a readiness probe can retry until the management API answers).
 local function admin(container, args)
-  local cmd = "rabbitmqadmin " .. table.concat(args, " ")
-  local code, out, err = container:exec(cmd)
-  if code ~= 0 then
-    error("rabbitmqadmin " .. table.concat(args, " ") .. " failed (" .. code .. "): " .. (err ~= "" and err or out))
-  end
-  return out
+  local argv = { "rabbitmqadmin" }
+  for _, a in ipairs(args) do argv[#argv + 1] = a end
+  return container:run(argv)
 end
 
--- The docker-exec client: a table of methods closing over the container. No native driver, no socket.
+-- The docker-exec client: a table of methods closing over the container. No native driver, no socket,
+-- no hand-rolled plumbing — quoting and TSV parsing come from the prova exec-CLI SDK.
 local function make_client(container)
   local client = {}
 
   function client:declare_queue(name, opts)
     opts = opts or {}
-    local durable = opts.durable and "true" or "false"
-    admin(container, { "declare", "queue", "name=" .. q(name), "durable=" .. durable })
+    admin(container, { "declare", "queue", "name=" .. name, "durable=" .. (opts.durable and "true" or "false") })
     return self
   end
 
@@ -44,35 +36,32 @@ local function make_client(container)
   -- to use the default (nameless) exchange — rabbitmqadmin rejects an explicit empty `exchange=`.
   function client:publish(queue, payload, opts)
     opts = opts or {}
-    local routing_key = opts.routing_key or queue
-    local args = { "publish", "routing_key=" .. q(routing_key), "payload=" .. q(payload) }
+    local args = { "publish", "routing_key=" .. (opts.routing_key or queue), "payload=" .. payload }
     if opts.exchange and opts.exchange ~= "" then
-      table.insert(args, 2, "exchange=" .. q(opts.exchange))
+      table.insert(args, 2, "exchange=" .. opts.exchange)
     end
     admin(container, args)
     return self
   end
 
   -- Get up to `count` (default 1) messages from `queue`, removing them (ack). Returns their payloads
-  -- as a list of strings. Parses `rabbitmqadmin`'s TSV, locating the `payload` column by header name.
+  -- as a list of strings — `prova.parse.table` reads rabbitmqadmin's TSV, keyed by header name.
   function client:get(queue, opts)
     opts = opts or {}
-    local count = opts.count or 1
     local ackmode = opts.ack == false and "reject_requeue_true" or "ack_requeue_false"
     local out = admin(container, {
-      "get", "queue=" .. q(queue), "count=" .. tostring(count), "ackmode=" .. ackmode, "-f", "tsv",
+      "get", "queue=" .. queue, "count=" .. tostring(opts.count or 1), "ackmode=" .. ackmode, "-f", "tsv",
     })
-    return parse_payloads(out)
+    local payloads = {}
+    for _, row in ipairs(prova.parse.table(out)) do payloads[#payloads + 1] = row.payload end
+    return payloads
   end
 
   -- List queue names (also the readiness probe: raises until the management API is up).
   function client:list_queues()
-    local out = admin(container, { "list", "queues", "name", "-f", "tsv" })
     local names = {}
-    local first = true
-    for line in out:gmatch("[^\n]+") do
-      if first then first = false            -- skip the header row
-      elseif line ~= "" then names[#names + 1] = line end
+    for _, row in ipairs(prova.parse.table(admin(container, { "list", "queues", "name", "-f", "tsv" }))) do
+      names[#names + 1] = row.name
     end
     return names
   end
