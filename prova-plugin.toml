@@ -9,4 +9,4 @@ description = "RabbitMQ resource for Prova — docker-exec over rabbitmqadmin, z
 license     = "MIT"
 
 [requires]
-prova = ">=0.1, <0.2"
+prova = ">=0.2, <0.3"
