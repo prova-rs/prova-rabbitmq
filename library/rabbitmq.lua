@@ -1,50 +1,81 @@
 ---@meta rabbitmq
---- LuaCATS annotations for the `rabbitmq` Prova plugin — the consumer-facing contract for
---- `local rabbitmq = require("rabbitmq")`. prova syncs this into a project's `annotations/` so
---- `require("rabbitmq")` resolves by module name. Keep in step with `../rabbitmq.lua`.
+--- prova-rabbitmq — RabbitMQ resource for Prova: docker-exec over rabbitmqadmin, zero native code.
+---
+--- Editor-only type stub for `require("rabbitmq")`: it gives consumers completion and signatures and
+--- ships nothing at runtime. Keep it in sync with init.lua's public API.
 
----A docker-exec RabbitMQ client (drives `rabbitmqadmin` inside the container).
+local rabbitmq = {}
+
+--- Options for `Client:declare_queue`.
+---@class rabbitmq.DeclareOpts
+---@field durable? boolean  # survive a broker restart (default false)
+
+--- Options for `Client:publish`.
+---@class rabbitmq.PublishOpts
+---@field routing_key? string  # override the routing key (default: the queue name)
+---@field exchange? string     # publish through a named exchange (default: the nameless default exchange)
+
+--- Options for `Client:get`.
+---@class rabbitmq.GetOpts
+---@field count? integer  # maximum messages to fetch (default 1)
+---@field ack? boolean    # false rejects + requeues instead of acking (default true: ack, remove)
+
+--- The docker-exec client: each method shells `rabbitmqadmin` inside the container.
 ---@class rabbitmq.Client
 local Client = {}
 
----Declare a queue (idempotent).
+--- Declare a queue; idempotent. Returns the client for chaining.
 ---@param name string
----@param opts { durable?: boolean }?
----@return rabbitmq.Client self
+---@param opts? rabbitmq.DeclareOpts
+---@return rabbitmq.Client
 function Client:declare_queue(name, opts) end
 
----Publish a payload to a queue (routing_key defaults to the queue name; omit `exchange` for default).
+--- Publish `payload` so it lands in `queue` (routing_key = queue through the default exchange,
+--- unless overridden). Returns the client for chaining.
 ---@param queue string
 ---@param payload string
----@param opts { routing_key?: string, exchange?: string }?
----@return rabbitmq.Client self
+---@param opts? rabbitmq.PublishOpts
+---@return rabbitmq.Client
 function Client:publish(queue, payload, opts) end
 
----Get up to `count` (default 1) messages from a queue, acking by default. Returns their payloads.
+--- Get up to `opts.count` (default 1) messages from `queue`, removing them (ack). Returns their
+--- payloads as a list of strings.
 ---@param queue string
----@param opts { count?: integer, ack?: boolean }?
----@return string[] payloads
+---@param opts? rabbitmq.GetOpts
+---@return string[]
 function Client:get(queue, opts) end
 
----@return string[] queue names
+--- List queue names. Raises until the management API is up — also the readiness probe.
+---@return string[]
 function Client:list_queues() end
 
----No-op; the container teardown reaps everything.
+--- No-op (present for lifecycle symmetry); the container teardown reaps everything.
 function Client:close() end
 
----The provisioned RabbitMQ: `{ client, url, container }`.
+--- The provisioned resource: the standard `prova.containerized` shape with the docker-exec
+--- client attached.
 ---@class rabbitmq.Resource
----@field client rabbitmq.Client the client to drive RabbitMQ
----@field url string the `amqp://…` endpoint for the app under test
----@field container prova.Container the raw container (host_port, logs, run, exec, stop)
+---@field client rabbitmq.Client  # the attached docker-exec client
+---@field url string              # host-vantage AMQP endpoint (amqp://guest:guest@127.0.0.1:port) for the app under test
+---@field host string             # "127.0.0.1"
+---@field port integer            # the mapped host port for AMQP (container port 5672)
+---@field container any           # the docker Container handle
+---@field network? any            # network vantage, present when provisioned on a topology network
 
----@class rabbitmq
-local rabbitmq = {}
-
----Provision an ephemeral RabbitMQ broker and return the resource. Teardown is tied to `ctx`.
----@param ctx prova.Context
----@param opts table? image/tag/port overrides
+--- Provision a `rabbitmq:3-management` container, wait until the management API answers, attach the
+--- docker-exec client, and tie teardown to `ctx`. `opts` overrides `image`/`tag`/`timeout`/`env` as
+--- with any `prova.containerized` resource. Requires docker — gate with `requires = { "docker" }`.
+---@param ctx any
+---@param opts? table
 ---@return rabbitmq.Resource
 function rabbitmq.container(ctx, opts) end
+
+--- The client factory (grammar symmetry; rarely called directly). A docker-exec client attaches to
+--- the `container`, not the `url` — pass the running container handle; `url` is ignored.
+---@param url string
+---@param opts? table
+---@param container any
+---@return rabbitmq.Client
+function rabbitmq.client(url, opts, container) end
 
 return rabbitmq

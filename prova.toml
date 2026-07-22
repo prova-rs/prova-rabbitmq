@@ -1,9 +1,17 @@
-# Self-test manifest: run this plugin's own suite. Declaring the source as the plugin's own directory
-# (".") resolves the entry via prova-plugin.toml and registers the `rabbitmq` namespace — so the tests'
-# `require("rabbitmq")` loads the entry and the plugin's own `require("rabbitmq.helpers")` resolves.
-# A consumer would write `rabbitmq = "prova-rs/prova-rabbitmq@v1"` instead of a local path.
-[run]
-paths = ["tests"]
+# One manifest, two hats. In Prova a package is one prova.toml-rooted unit; this one both exports a
+# namespace (a plugin — `[plugin]`) and runs its own proofs (a suite). Author the plugin in
+# init.lua; prove it in proofs/; ship both together.
+[plugin]
+name        = "rabbitmq"
+description = "RabbitMQ resource for Prova — docker-exec over rabbitmqadmin, zero native code"
+license     = "MIT"
 
+# The range of prova versions this plugin is built against; a consumer is checked against it.
+[requires]
+prova = ">=0.3"
+
+# Resolve THIS plugin from its own directory, so the self-tests can `require("rabbitmq")` exactly as
+# a consumer would. A CONSUMER instead pins it by source — a released tag:
+#   rabbitmq = { git = "https://github.com/prova-rs/prova-rabbitmq", tag = "v1" }
 [plugins]
 rabbitmq = { path = "." }

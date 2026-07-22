@@ -18,5 +18,5 @@ jobs:
 
       # prova is now on PATH — check the plugin conforms to the namespacing grammar.
       - name: Lint the plugin
-        run: prova plugin lint *.lua
+        run: prova plugin lint init.lua
 
